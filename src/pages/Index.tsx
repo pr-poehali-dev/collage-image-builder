@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Icon from "@/components/ui/icon";
 
 type Section = "editor" | "library" | "templates" | "gallery" | "tools" | "export";
@@ -92,6 +92,51 @@ export default function Index() {
   const [layers, setLayers] = useState<Layer[]>(INITIAL_LAYERS);
   const [selectedLayer, setSelectedLayer] = useState<string>("l3");
   const [zoom, setZoom] = useState(100);
+
+  // Drag-and-drop state
+  const dragId = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragPos, setDragPos] = useState<"before" | "after">("after");
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    dragId.current = id;
+    e.dataTransfer.effectAllowed = "move";
+    (e.currentTarget as HTMLElement).style.opacity = "0.4";
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    (e.currentTarget as HTMLElement).style.opacity = "1";
+    dragId.current = null;
+    setDragOverId(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    setDragOverId(id);
+    setDragPos(e.clientY < midY ? "before" : "after");
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = dragId.current;
+    if (!sourceId || sourceId === targetId) return;
+
+    setLayers(prev => {
+      const items = [...prev];
+      const sourceIdx = items.findIndex(l => l.id === sourceId);
+      const targetIdx = items.findIndex(l => l.id === targetId);
+      const [moved] = items.splice(sourceIdx, 1);
+      const insertAt = dragPos === "before" ? targetIdx : targetIdx + (sourceIdx < targetIdx ? 0 : 1);
+      items.splice(Math.max(0, sourceIdx < targetIdx ? insertAt - 1 : insertAt), 0, moved);
+      return items;
+    });
+
+    setDragOverId(null);
+    dragId.current = null;
+  };
 
   const toggleVisibility = (id: string) => {
     setLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l));
@@ -275,12 +320,22 @@ export default function Index() {
                 {layers.map((layer, i) => (
                   <div
                     key={layer.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, layer.id)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, layer.id)}
+                    onDrop={(e) => handleDrop(e, layer.id)}
                     onClick={() => setSelectedLayer(layer.id)}
-                    className={`layer-item flex items-center gap-2 px-3 py-2 cursor-pointer
+                    className={`layer-item flex items-center gap-2 px-3 py-2 cursor-grab active:cursor-grabbing relative
                       ${layer.grouped ? "pl-7" : ""}
                       ${selectedLayer === layer.id ? "active" : ""}`}
-                    style={{ animationDelay: `${i * 0.05}s` }}
+                    style={{
+                      animationDelay: `${i * 0.05}s`,
+                      borderTop: dragOverId === layer.id && dragPos === "before" ? "2px solid hsl(265,90%,65%)" : "2px solid transparent",
+                      borderBottom: dragOverId === layer.id && dragPos === "after" ? "2px solid hsl(265,90%,65%)" : "2px solid transparent",
+                    }}
                   >
+                    <Icon name="GripVertical" size={12} className="text-muted-foreground/30 flex-shrink-0 hover:text-muted-foreground transition-colors" />
                     <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
                       style={{
                         color: layer.type === "group" ? "hsl(195,100%,55%)" :
